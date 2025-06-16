@@ -18,6 +18,9 @@ class ResultsWindow(QDialog):
         self.setGeometry(500, 200, 1000, 800)
         self.data = data
         self.parent = parent
+        self.model = None
+        self.scaler = None
+        self.feature_names = []
 
         # Элементы виджета
         self.toolbar = QToolBar("Панель инструментов")
@@ -39,22 +42,16 @@ class ResultsWindow(QDialog):
         save_action = QAction(QIcon(), "Сохранить", self)
         save_action.triggered.connect(self.save_data)
         save_action.setShortcut("Ctrl+S")
-
         copy_action = QAction(QIcon(), "Копировать", self)
         copy_action.triggered.connect(self.copy_data)
-
         plot_action = QAction(QIcon(), "Построить график", self)
         plot_action.triggered.connect(self.plot_data)
-
         info_action = QAction(QIcon(), "Детальная информация", self)
         info_action.triggered.connect(self.show_column_info)
-
         build_model_action = QAction(QIcon(), "Построить модель", self)
         build_model_action.triggered.connect(self.build_regression_model)
-
         predict_action = QAction(QIcon(), "Предсказать MEDV", self)
         predict_action.triggered.connect(self.show_prediction_dialog)
-
         close_action = QAction(QIcon(), "Закрыть", self)
         close_action.triggered.connect(self.close)
 
@@ -70,8 +67,10 @@ class ResultsWindow(QDialog):
     def populate_table(self, data):
         if data:
             headers = [
-                "CRIM", "ZN", "INDUS", "CHAS", "NOX", "RM",
-                "AGE", "DIS", "RAD", "TAX", "PTRATIO", "B", "LSTAT", "MEDV"
+                "CRIM", "ZN", "INDUS",
+                "CHAS", "NOX", "RM",
+                "AGE", "DIS", "RAD", "TAX",
+                "PTRATIO", "B", "LSTAT", "MEDV"
             ]
 
             # Проверяем соответствие количества колонок
@@ -147,10 +146,8 @@ class ResultsWindow(QDialog):
         ]
 
         # Запрашиваем у пользователя выбор столбца
-        column_name, ok = QInputDialog.getItem(
-            self, "Выбор столбца",
-            "Выберите столбец для построения графика:", headers, 0, False
-        )
+        column_name, ok = QInputDialog.getItem(self, "Выбор столбца",
+            "Выберите столбец для построения графика:", headers, 0, False)
         if not ok or not column_name:
             return
 
@@ -276,24 +273,22 @@ class ResultsWindow(QDialog):
             df = df.dropna()
             if len(df) < 10:
                 raise ValueError("Недостаточно данных для построения модели (минимум 10 строк после очистки)")
-            # Построение модели
-            self.model, r2, rmse, plot_base64, self.feature_names = build_linear_regression_model(df)
+            # Строим модель
+            self.model, r2, rmse, plot_base64, self.feature_names, self.scaler = build_linear_regression_model(df)
             self.show_model_results(r2, rmse, plot_base64)
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось построить модель:\n{str(e)}")
 
     def show_model_results(self, r2, rmse, plot_base64):
-        # Создаем окна с результатами
+        # Результаты предиктов модели на данные введенных
         result_dialog = QDialog(self)
         result_dialog.setWindowTitle("Результаты модели")
         result_dialog.setFixedSize(1200, 800)
 
         layout = QVBoxLayout()
-
-        # Метрики
         metrics_label = QLabel(
             f"<h3>Метрики модели:</h3>"
-            f"R² (Коэффициент детерминации): {r2:.4f}<br>"
+            f"R2 (Коэффициент детерминации): {r2:.4f}<br>"
             f"RMSE (Среднеквадратичная ошибка): {rmse:.4f}"
         )
         layout.addWidget(metrics_label)
@@ -320,14 +315,13 @@ class ResultsWindow(QDialog):
 
         dialog = PredictionDialog(self.feature_names, self)
         if dialog.exec_() == QDialog.Accepted:
-            features = dialog.get_features()
             try:
-                prediction = self.model.predict([features])[0]
-                QMessageBox.information(
-                    self,
-                    "Результат предсказания",
-                    f"Предсказанное значение MEDV: {prediction:.2f}"
-                )
+                features = dialog.get_features()
+                features_array = np.array(features).reshape(1, -1)
+                features_scaled = self.scaler.transform(features_array)
+                prediction = self.model.predict(features_scaled)[0]
+                QMessageBox.information(self,
+                                        "Результат предсказания", f"Предсказанное значение MEDV: {prediction:.2f}")
             except Exception as e:
                 QMessageBox.critical(self, "Ошибка", f"Ошибка предсказания: {str(e)}")
 
@@ -343,7 +337,7 @@ class PredictionDialog(QDialog):
 
         layout = QFormLayout()
 
-        # Создаем поля ввода для каждого признака
+        # Поля для ввода всех фич
         for feature in feature_names:
             self.inputs[feature] = QLineEdit()
             self.inputs[feature].setPlaceholderText(f"Введите значение {feature}")
@@ -352,20 +346,30 @@ class PredictionDialog(QDialog):
         # Кнопки
         btn_predict = QPushButton("Предсказать")
         btn_cancel = QPushButton("Отмена")
-
-        btn_predict.clicked.connect(self.accept)
+        btn_predict.clicked.connect(self.validate)
         btn_cancel.clicked.connect(self.reject)
-        layout.addRow(btn_predict, btn_cancel)
+        button_layout = QVBoxLayout()
+        button_layout.addWidget(btn_predict)
+        button_layout.addWidget(btn_cancel)
+        layout.addRow(button_layout)
+
         self.setLayout(layout)
+
+    def validate(self):
+        try:
+            # Проверка полей
+            for name in self.feature_names:
+                value = self.inputs[name].text()
+                if not value:
+                    raise ValueError(f"Поле {name} не заполнено")
+                float(value)
+            self.accept()
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка ввода", str(e))
 
     def get_features(self):
         features = []
         for name in self.feature_names:
             value = self.inputs[name].text()
-            if not value:
-                raise ValueError(f"Поле {name} не заполнено")
-            try:
-                features.append(float(value))
-            except ValueError:
-                raise ValueError(f"Некорректное значение в поле {name}")
+            features.append(float(value))
         return features

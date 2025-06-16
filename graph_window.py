@@ -121,13 +121,7 @@ class GraphWindow(QDialog):
         self.change_window_theme()
         # Строим точечный график
         x = range(len(self.data))
-        self.ax.scatter(
-            x,
-            self.data,
-            c='#d62728',
-            alpha=0.7,
-            edgecolors='w'
-        )
+        self.ax.scatter(x, self.data, c='#d62728', alpha=0.7, edgecolors='w')
         self.ax.set_title(f'Точечный график: {self.column_name}', fontsize=14)
         self.ax.set_xlabel('Номер наблюдения', fontsize=12)
         self.ax.set_ylabel(self.column_name, fontsize=12)

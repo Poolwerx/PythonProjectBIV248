@@ -147,7 +147,7 @@ class ResultsWindow(QDialog):
 
         # Запрашиваем у пользователя выбор столбца
         column_name, ok = QInputDialog.getItem(self, "Выбор столбца",
-            "Выберите столбец для построения графика:", headers, 0, False)
+                                               "Выберите столбец для построения графика:", headers, 0, False)
         if not ok or not column_name:
             return
 

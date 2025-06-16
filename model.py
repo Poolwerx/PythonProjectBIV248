@@ -43,4 +43,4 @@ def build_linear_regression_model(df):
     buf.seek(0)
     plot_base64 = base64.b64encode(buf.read()).decode('utf-8')
     plt.close()
-    return model, r2, rmse, plot_base64, feature_names
+    return model, r2, rmse, plot_base64, feature_names, scaler
